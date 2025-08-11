@@ -4,7 +4,11 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Polly;
+using Polly.Extensions.Http;
+using Serilog;
 using System;
+using System.Net.Http;
 
 namespace AspnetRunBasics
 {
@@ -21,11 +25,19 @@ namespace AspnetRunBasics
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddHttpClient<ICatalogService, CatalogService>(c =>
-                c.BaseAddress = new Uri(Configuration["ApiSettings:GatewayAddress"]));
+                c.BaseAddress = new Uri(Configuration["ApiSettings:GatewayAddress"]))
+                .AddPolicyHandler(GetRetryPolicy())
+                .AddPolicyHandler(GetCircuitBreakerPolicy());
+
             services.AddHttpClient<IBasketService, BasketService>(c =>
-                c.BaseAddress = new Uri(Configuration["ApiSettings:GatewayAddress"]));
+                c.BaseAddress = new Uri(Configuration["ApiSettings:GatewayAddress"]))
+                .AddPolicyHandler(GetRetryPolicy())
+                .AddPolicyHandler(GetCircuitBreakerPolicy());
+
             services.AddHttpClient<IOrderService, OrderService>(c =>
-                c.BaseAddress = new Uri(Configuration["ApiSettings:GatewayAddress"]));
+                c.BaseAddress = new Uri(Configuration["ApiSettings:GatewayAddress"]))
+                .AddPolicyHandler(GetRetryPolicy())
+                .AddPolicyHandler(GetCircuitBreakerPolicy());
 
             services.AddRazorPages();
         }
@@ -55,6 +67,38 @@ namespace AspnetRunBasics
             {
                 endpoints.MapRazorPages();
             });
+        }
+
+        private static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy()
+        {
+            // In this case will wait for 2, 4, 8 seconds on each retry attempt
+            return HttpPolicyExtensions
+                .HandleTransientHttpError()
+                .WaitAndRetryAsync(
+                    retryCount: 3,
+                    sleepDurationProvider: retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)),
+                    onRetry: (exception, retryCount, context) =>
+                    {
+                        Log.Error($"Retry {retryCount} of {context.PolicyKey} at {context.OperationKey}, due to: {exception}");
+                    });
+        }
+
+        private static IAsyncPolicy<HttpResponseMessage> GetCircuitBreakerPolicy()
+        {
+            // Circuit breaker will break after 5 consecutive failures and will stay open for 30 seconds
+            return HttpPolicyExtensions
+                .HandleTransientHttpError()
+                .CircuitBreakerAsync(
+                    handledEventsAllowedBeforeBreaking: 5,
+                    durationOfBreak: TimeSpan.FromSeconds(30),
+                    onBreak: (exception, duration) =>
+                    {
+                        Log.Error($"Circuit broken due to: {exception}");
+                    },
+                    onReset: () =>
+                    {
+                        Log.Information("Circuit reset");
+                    });
         }
     }
 }
