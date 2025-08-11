@@ -4,7 +4,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Polly;
-using Serilog;
 using System;
 
 namespace Ordering.API.Extensions
@@ -31,7 +30,7 @@ namespace Ordering.API.Extensions
                             sleepDurationProvider: retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)),
                             onRetry: (exception, retryCount, context) =>
                             {
-                                Log.Error($"Retry {retryCount} of {context.PolicyKey} at {context.OperationKey}, due to: {exception}");
+                                logger.LogError($"Retry {retryCount} of {context.PolicyKey} at {context.OperationKey}, due to: {exception}");
                             });
 
                     // If the SQL Server container is not created on run docker compose this
